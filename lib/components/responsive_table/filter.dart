@@ -158,4 +158,13 @@ class ListingSettings with ChangeNotifier {
     _filter[key] = value;
     notifyListeners();
   }
+
+  Map<String, dynamic> toQueryParameters() {
+    final Map<String, dynamic> params = {
+      "page_size": pageSize,
+      "page": page,
+    };
+    params.addAll(filter);
+    return params;
+  }
 }
