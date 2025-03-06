@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
-import 'package:cookie_jar/cookie_jar.dart';
+import 'package:json_annotation/json_annotation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+
+part 'store.g.dart';
 
 class Store {
   static final store = SharedPreferencesAsync();
@@ -12,13 +14,11 @@ class Store {
     contentType: "application/json",
   ));
 
-  static final cookies = CookieJar();
-
   static Future<String?> get access async => store.getString("access");
   static Future<String?> get refresh async => store.getString("refresh");
   static Future<bool?> get isAuth async => (await access != null);
-  static Future<Map<String, dynamic>?> get user async =>
-      jsonDecode(await store.getString("user") ?? "");
+  static Future<User?> get user async =>
+      User.fromJson(jsonDecode(await store.getString("user") ?? ""));
   static Future<Map<String, dynamic>?> get account async =>
       jsonDecode(await store.getString("account") ?? "");
 
@@ -27,12 +27,17 @@ class Store {
           ?.any((perm) => perm.codename == permission) ||
       false;
 
-  static login(Cred credentials) async {
-    final response = await dio.post("token/", data: credentials);
-    setTokens(response.data.access, response.data.refresh);
-    final userResponse = await dio.get("/api/users/self/");
-    setUser(userResponse.data);
-    final account = userResponse.data.account;
+
+  static Future login(Cred credentials) async {
+    final response = await dio
+        .post("token/", data: credentials.toJson())
+        .then((v) => TokenPair.fromJson(v.data));
+    setTokens(response.access, response.refresh);
+    final userResponse =
+        await dio.get("/users/self/").then((v) => User.fromJson(v.data));
+
+    setUser(userResponse);
+    final account = userResponse.accounts.firstOrNull;
     if (account != null) {
       setActiveAccount(account.type, account.id);
     }
@@ -54,19 +59,19 @@ class Store {
   static setTokens(String accessToken, String refreshToken) {
     store.setString("access", accessToken);
     store.setString("refresh", refreshToken);
-    // TODO: Implement Cookies if needed
   }
 
-  static setUser(Map<String, dynamic> user) {
+  static setUser(User user) {
     store.setString("user", jsonEncode(user));
   }
 
   static Future<void> init() async {
+    dio.interceptors.add(LogInterceptor());
     dio.interceptors
         .add(InterceptorsWrapper(onRequest: (options, handler) async {
       final accessToken = await access;
       if (accessToken != null) {
-        options.headers["Authorization"] = "Bearer $access";
+        options.headers["Authorization"] = "Bearer $accessToken";
       }
       return handler.next(options);
     }, onError: (error, handler) async {
@@ -85,9 +90,76 @@ class Store {
   }
 }
 
+@JsonSerializable()
 class Cred {
   final String username;
   final String password;
 
   Cred({required this.username, required this.password});
+
+  factory Cred.fromJson(Map<String, dynamic> json) => _$CredFromJson(json);
+
+  /// Connect the generated [_$CredToJson] function to the `toJson` method.
+  Map<String, dynamic> toJson() => _$CredToJson(this);
+}
+
+@JsonSerializable()
+class TokenPair {
+  final String access;
+  final String refresh;
+
+  TokenPair({required this.access, required this.refresh});
+  factory TokenPair.fromJson(Map<String, dynamic> json) =>
+      _$TokenPairFromJson(json);
+
+  /// Connect the generated [_$TokenPairToJson] function to the `toJson` method.
+  Map<String, dynamic> toJson() => _$TokenPairToJson(this);
+}
+
+@JsonSerializable()
+class AccountType {
+  final String type;
+  final int id;
+
+  AccountType({required this.type, required this.id});
+
+  factory AccountType.fromJson(Map<String, dynamic> json) =>
+      _$AccountTypeFromJson(json);
+
+  /// Connect the generated [_$AccountTypeToJson] function to the `toJson` method.
+  Map<String, dynamic> toJson() => _$AccountTypeToJson(this);
+}
+
+@JsonSerializable()
+class User {
+  final String username;
+  final int id;
+  final String email;
+  final String firstName;
+  final String lastName;
+  final bool isActive;
+  final bool isApproved;
+  final bool isStaff;
+  final bool isSuperuser;
+  final List<AccountType> accounts;
+  final int? school;
+
+  User({
+    required this.username,
+    required this.id,
+    required this.email,
+    required this.firstName,
+    required this.lastName,
+    required this.isActive,
+    required this.isApproved,
+    required this.isStaff,
+    required this.isSuperuser,
+    required this.accounts,
+    required this.school,
+  });
+
+  factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
+
+  /// Connect the generated [_$UserToJson] function to the `toJson` method.
+  Map<String, dynamic> toJson() => _$UserToJson(this);
 }
